@@ -274,7 +274,12 @@ WebSocket. Each test scripts the server's replies:
     test, alternating both builds 3 times, showed +15–20% throughput but ~35% worse latency. Both hit the same
     ceiling, which is Windows loopback TCP: adding threads barely changed anything. So the simpler design stayed.
     The lesson: run alternating A/B tests, because single runs on a laptop varied by more than the difference.
-18. **How do you know the books are correct?**
+18. **At 1000 clients, latency is 3.9 ms p50 but throughput is still 100k msg/s. Why both?** Throughput is
+    fine because every update is serialised once and shared, and the 2 threads keep up: nothing was conflated
+    or dropped. Latency grows with clients because one update means 1000 socket writes, and the last client
+    waits for the writes before it. 3.9 ms ÷ (1000 / 2 threads) ≈ 8 µs per write. To cut it, add I/O threads.
+    For very large audiences, use a multicast or relay tier so one process doesn't write to everyone.
+19. **How do you know the books are correct?**
     - Model check against `std::map`.
     - Sequence-gap tests.
     - Crossed-book detection at runtime.

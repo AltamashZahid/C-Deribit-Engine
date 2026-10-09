@@ -52,54 +52,23 @@ WebSocket server.
 
 ## Performance
 
-All numbers measured on an Intel i5-13500H laptop running Windows 11, with GCC 16.2 at `-O3`.
-Windows `steady_clock` ticks every 100 ns, so per-operation percentiles below ~200 ns are quantised to that step.
-The `ns/op` column comes from a separate pass with no timer calls in the loop.
+Headline numbers. Full tables, test setup and analysis are in **[BENCHMARKS.md](BENCHMARKS.md)**.
 
-**Hot path, offline** (`engine_bench 500000`):
+**Market data server, Linux** (4-vCPU GitHub runner, 2 server threads, 100k msg/s asked of the server in every row,
+median of 3 runs, [Load test run](https://github.com/AltamashZahid/C-Deribit-Engine/actions/runs/37922691655)):
 
-| Operation | ns/op | p50 | p99 |
-|---|---:|---:|---:|
-| Order book `set_level` (1000-level book, updates near top) | 39 | 100 ns | 100 ns |
-| Parse Deribit book frame, arena allocator | 1,055 | 0.9 µs | 1.5 µs |
-| Parse Deribit book frame, default allocator | 1,784 | 1.8 µs | 4.7 µs |
-| Parse + apply book frame to the order book | 1,990 | 1.4 µs | 2.8 µs |
-| Build top-10 client message | 1,403 | 1.4 µs | 3.3 µs |
-| MPMC queue push + pop | 13 | — | — |
-| Latency histogram `record` | 26 | — | — |
-| `LOG_INFO` call (async logger, hot-path cost) | 228 | 201 ns | 299 ns |
+| Clients | Delivered msg/s | p50 | p99 | Dropped |
+|---:|---:|---:|---:|---:|
+| 10 | 98,086 | 110 µs | 283 µs | 0 |
+| 100 | 99,969 | 438 µs | 1.10 ms | 0 |
+| 500 | 99,999 | 1.95 ms | 5.05 ms | 0 |
+| 1000 | 100,000 | 3.90 ms | 8.52 ms | 0 |
 
-**WebSocket fan-out under load.** Synthetic feed, 4 server threads, with server and clients on the same laptop
-(`deribit_engine --no-cli --synthetic RATE` plus `md_client_bench --clients N`). Each row is the median of 3 runs
-from one session:
+**Hot path, offline** (`engine_bench`, i5-13500H laptop): order book update **39 ns**, Deribit book frame
+parse + apply **1.4 µs** p50, arena JSON parse 1.7× faster than the default allocator, async log call **228 ns**.
 
-| Clients | Feed rate | Delivered | Delivery latency (engine → client process) | Dropped |
-|---:|---:|---:|---|---:|
-| 10 | 10,000 upd/s | 55,000 msg/s | p50 186 µs, p99 487 µs | 0 |
-| 100 | 1,000 upd/s | 54,000 msg/s | p50 1.5 ms, p99 3.2 ms | 0 |
-| 250 | 400 upd/s | 50,000 msg/s | p50 3.9 ms, p99 8.2 ms | 0 |
-
-Above about 55k msg/s the Windows loopback TCP stack is the limit. Adding server threads (4 → 8) barely changes it.
-Past that point, conflation does its job: clients get fewer but current snapshots, and none are dropped. Throughput
-varies with machine state; a quieter run reached 85k msg/s with 10 clients at p99 231 µs.
-A shard-per-thread variant (one `io_context` per thread instead of strands) was A/B tested. It gave 15–20% more
-throughput but ~35% higher latency, so the simpler strand design was kept.
-
-**Live Deribit Testnet.** Measured from India over the public internet:
-
-| Metric | p50 | p90 |
-|---|---:|---:|
-| Order placement round trip (`bench orders`, 20 orders) | 229 ms | 237 ms |
-| Cancel round trip | 224 ms | 233 ms |
-| **Tick-to-send, engine part:** book frame received → order serialised and ready to write (`bench loop`, 30 iterations) | **38 µs** | 59 µs |
-| Socket write: WebSocket framing + TLS + Windows `send()` over Wi-Fi | 141 µs | 182 µs |
-| Tick-to-ack: book frame received → order acknowledged by Deribit | 216 ms | 258 ms |
-| Book frame received → parsed and applied | ~17 µs | 26 µs |
-
-The round trips are the network itself. A raw 300-byte `send()` to Deribit with no TLS takes 133 µs on this Wi-Fi
-connection, versus 15 µs on loopback, so the socket-write row is mostly the OS and network driver.
-On the live feed the engine's own work runs on cold caches: updates arrive only ~0.6 s apart. That's why
-it's 38 µs live versus ~1.5 µs for the same path in the warm offline benchmark.
+**Live Deribit Testnet** (from India): engine tick-to-send (book update → order ready to send) **38 µs** p50.
+Order round trip 229 ms, nearly all of it the India ↔ London network.
 
 Testnet's order books are thin, at about two `book.100ms` updates per second for BTC-PERPETUAL. Use the synthetic feed to load-test.
 
