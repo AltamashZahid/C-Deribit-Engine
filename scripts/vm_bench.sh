@@ -16,8 +16,18 @@ sudo apt-get update -qq
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential cmake ninja-build libboost-all-dev libssl-dev time curl > /dev/null
 
 echo "== 2/5 building"
+# Boost.Beast translation units need ~1 GB of RAM each to compile. On small VMs (1-2 GB)
+# add a temporary swap file and build one file at a time instead of running out of memory.
+mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+jobs=$(( mem_mb / 1500 ))
+(( jobs < 1 )) && jobs=1
+(( jobs > $(nproc) )) && jobs=$(nproc)
+if (( mem_mb < 3500 )) && ! swapon --show | grep -q swapfile-de; then
+    echo "   ${mem_mb} MB RAM: adding 4 GB temporary swap"
+    sudo fallocate -l 4G /swapfile-de && sudo chmod 600 /swapfile-de && sudo mkswap /swapfile-de > /dev/null && sudo swapon /swapfile-de
+fi
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release > /dev/null
-cmake --build build -j "$(nproc)" > "$OUT/build.log" 2>&1 || { tail -30 "$OUT/build.log"; exit 1; }
+cmake --build build -j "$jobs" > "$OUT/build.log" 2>&1 || { tail -30 "$OUT/build.log"; exit 1; }
 ./build/unit_tests > "$OUT/unit_tests.txt" 2>&1 && tail -1 "$OUT/unit_tests.txt"
 
 if [[ ! -f .env ]]; then
@@ -55,4 +65,4 @@ cat "$OUT/network.txt"
 grep -E "rtt|tick-to|socket write|iterations|md parse" "$OUT/live_bench.txt" || true
 cat "$OUT/load_summary.md"
 echo "------------------------------------------------------------------"
-echo "Remember to DELETE the VM in the Azure portal when you're finished."
+echo "Remember to DELETE / TERMINATE the VM when you're finished so it stops using credit."
