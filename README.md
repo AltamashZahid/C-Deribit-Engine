@@ -69,13 +69,21 @@ The `ns/op` column comes from a separate pass with no timer calls in the loop.
 | Latency histogram `record` | 26 | — | — |
 | `LOG_INFO` call (async logger, hot-path cost) | 228 | 201 ns | 299 ns |
 
-**WebSocket fan-out under load.** Synthetic feed at 10,000 updates/s, 10 clients, 4 server threads, all on one machine
-(`deribit_engine --no-cli --synthetic 10000` plus `md_client_bench --clients 10`):
+**WebSocket fan-out under load.** Synthetic feed, 4 server threads, with server and clients on the same laptop
+(`deribit_engine --no-cli --synthetic RATE` plus `md_client_bench --clients N`). Each row is the median of 3 runs
+from one session:
 
-| Metric | Value |
-|---|---|
-| Delivered | 85,070 msg/s (33 MB/s), 0 clients dropped |
-| Delivery latency, engine → client process | p50 124 µs, p90 178 µs, p99 231 µs |
+| Clients | Feed rate | Delivered | Delivery latency (engine → client process) | Dropped |
+|---:|---:|---:|---|---:|
+| 10 | 10,000 upd/s | 55,000 msg/s | p50 186 µs, p99 487 µs | 0 |
+| 100 | 1,000 upd/s | 54,000 msg/s | p50 1.5 ms, p99 3.2 ms | 0 |
+| 250 | 400 upd/s | 26,000 msg/s | p50 5.6 ms, p99 15.9 ms | 0 |
+
+Above about 55k msg/s the Windows loopback TCP stack is the limit. Adding server threads (4 → 8) barely changes it.
+Past that point, conflation does its job: clients get fewer but current snapshots, and none are dropped. Throughput
+varies with machine state; a quieter run reached 85k msg/s with 10 clients at p99 231 µs.
+A shard-per-thread variant (one `io_context` per thread instead of strands) was A/B tested. It gave 15–20% more
+throughput but ~35% higher latency, so the simpler strand design was kept.
 
 **Live Deribit Testnet.** Measured from India over the public internet:
 

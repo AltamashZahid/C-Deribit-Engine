@@ -47,7 +47,8 @@ the Q&A at the end to test yourself.
    older update for the same instrument is still waiting (not yet written), the new one **replaces** it
    (conflation). `async_write` sends it, and the completion records `now - recv_ns` into the fan-out histogram.
 
-Measured end to end (engine receive → client process receive, 10 clients at 10k updates/s): p50 124 µs, p99 231 µs.
+Measured end to end (engine receive → client process receive, 10 clients at 10k updates/s): p50 124–186 µs and
+p99 231–487 µs, depending on machine state.
 Most of that is the Windows loopback TCP stack and thread wake-ups, not our code.
 
 ## 3. Following one order
@@ -268,7 +269,12 @@ WebSocket. Each test scripts the server's replies:
     over Wi-Fi versus 15 µs on loopback. So it's the OS and network driver. I split the metric into engine time
     (38 µs live, cold caches) and socket time, and report both. The fix would be wired networking, Linux, or
     kernel bypass, not changing the C++.
-17. **How do you know the books are correct?**
+17. **You tried a shard-per-thread server. Why didn't you keep it?** One `io_context` per thread means a publish
+    posts one task per thread instead of one per client, so I expected it to scale better at 250 clients. An A/B
+    test, alternating both builds 3 times, showed +15–20% throughput but ~35% worse latency. Both hit the same
+    ceiling, which is Windows loopback TCP: adding threads barely changed anything. So the simpler design stayed.
+    The lesson: run alternating A/B tests, because single runs on a laptop varied by more than the difference.
+18. **How do you know the books are correct?**
     - Model check against `std::map`.
     - Sequence-gap tests.
     - Crossed-book detection at runtime.
