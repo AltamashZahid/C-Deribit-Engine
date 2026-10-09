@@ -3,6 +3,7 @@
 // each message -> client receive time, same machine steady clock) and throughput.
 //
 //   md_client_bench [--port 8080] [--clients 10] [--instrument SYN-PERP] [--seconds 10] [--threads 2]
+//                   [--csv results.csv]   (appends one machine-readable result row)
 //
 // Pair it with `deribit_engine --no-cli --synthetic 0` for a pure server load test, or
 // with the normal engine and a real instrument such as BTC-PERPETUAL.
@@ -116,6 +117,7 @@ private:
 int main(int argc, char** argv) {
     std::string host = "127.0.0.1", port = "8080", instrument = "SYN-PERP";
     int clients = 10, seconds = 10, threads = 2;
+    std::string csv_path;
     for (int i = 1; i + 1 < argc; i += 2) {
         const std::string a = argv[i], v = argv[i + 1];
         if (a == "--host") host = v;
@@ -124,6 +126,7 @@ int main(int argc, char** argv) {
         else if (a == "--instrument") instrument = v;
         else if (a == "--seconds") seconds = std::max(1, std::stoi(v));
         else if (a == "--threads") threads = std::max(1, std::stoi(v));
+        else if (a == "--csv") csv_path = v;
         else {
             std::fprintf(stderr, "unknown option %s\n", a.c_str());
             return 2;
@@ -169,5 +172,17 @@ int main(int argc, char** argv) {
                 static_cast<double>(msgs) / elapsed, static_cast<double>(msgs) / elapsed / shared.ready.load());
     std::printf("throughput        : %.2f MB/s\n", static_cast<double>(shared.bytes.load()) / elapsed / 1e6);
     std::printf("%s\n", shared.latency.summary("delivery latency").c_str());
+    if (!csv_path.empty()) {
+        // clients_connected,clients,msgs_per_s,mb_per_s,p50_us,p90_us,p99_us,p999_us,max_us
+        if (std::FILE* f = std::fopen(csv_path.c_str(), "a")) {
+            const auto& h = shared.latency;
+            std::fprintf(f, "%d,%d,%.0f,%.2f,%.1f,%.1f,%.1f,%.1f,%.1f\n", shared.ready.load(), clients,
+                         static_cast<double>(msgs) / elapsed, static_cast<double>(shared.bytes.load()) / elapsed / 1e6,
+                         static_cast<double>(h.percentile(50)) / 1e3, static_cast<double>(h.percentile(90)) / 1e3,
+                         static_cast<double>(h.percentile(99)) / 1e3, static_cast<double>(h.percentile(99.9)) / 1e3,
+                         static_cast<double>(h.max()) / 1e3);
+            std::fclose(f);
+        }
+    }
     return msgs > 0 ? 0 : 1;
 }

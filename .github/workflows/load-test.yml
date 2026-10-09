@@ -1,0 +1,54 @@
+name: Load test
+
+# Manual: Actions tab -> "Load test" -> Run workflow. Builds a Release engine on a Linux
+# runner, drives the market data server with 10..1000 WebSocket clients, and publishes the
+# results table on the run's summary page (and as a downloadable artifact).
+on:
+  workflow_dispatch:
+    inputs:
+      configs:
+        description: "clients:updates_per_second pairs"
+        default: "10:10000 100:1000 500:200 1000:100"
+      seconds:
+        description: "measurement window per run (s)"
+        default: "10"
+      runs:
+        description: "runs per config (median is reported)"
+        default: "3"
+      server_threads:
+        description: "server I/O threads"
+        default: "2"
+      client_threads:
+        description: "load generator I/O threads"
+        default: "2"
+
+jobs:
+  load-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libboost-all-dev libssl-dev time
+      - name: Build (Release)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target deribit_engine md_client_bench
+      - name: Run load test
+        env:
+          CONFIGS: ${{ inputs.configs }}
+          SECONDS_PER_RUN: ${{ inputs.seconds }}
+          RUNS: ${{ inputs.runs }}
+          SERVER_THREADS: ${{ inputs.server_threads }}
+          CLIENT_THREADS: ${{ inputs.client_threads }}
+        run: bash scripts/load_test.sh build load-results
+      - name: Summary
+        if: always()
+        run: |
+          python3 scripts/summarize_load.py load-results/results.csv load-results/machine.txt | tee load-results/summary.md
+          cat load-results/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-results
+          path: load-results/

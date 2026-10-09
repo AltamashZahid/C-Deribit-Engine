@@ -77,7 +77,7 @@ from one session:
 |---:|---:|---:|---|---:|
 | 10 | 10,000 upd/s | 55,000 msg/s | p50 186 µs, p99 487 µs | 0 |
 | 100 | 1,000 upd/s | 54,000 msg/s | p50 1.5 ms, p99 3.2 ms | 0 |
-| 250 | 400 upd/s | 26,000 msg/s | p50 5.6 ms, p99 15.9 ms | 0 |
+| 250 | 400 upd/s | 50,000 msg/s | p50 3.9 ms, p99 8.2 ms | 0 |
 
 Above about 55k msg/s the Windows loopback TCP stack is the limit. Adding server threads (4 → 8) barely changes it.
 Past that point, conflation does its job: clients get fewer but current snapshots, and none are dropped. Throughput
@@ -168,6 +168,10 @@ Every update of a subscribed instrument then arrives as a full top-of-book snaps
 ./build/deribit_engine --no-cli --synthetic 10000 &                    # synthetic feed
 ./build/md_client_bench --clients 10 --instrument SYN-PERP --seconds 10
 ```
+
+**Linux load test.** `scripts/load_test.sh` sweeps client counts (default 10 / 100 / 500 / 1000). Each config runs
+3 times and the median is reported, with server CPU, conflation share and drop count. On GitHub:
+**Actions → Load test → Run workflow** runs it on an Ubuntu runner and posts the table on the run's summary page.
 
 ## Tests
 

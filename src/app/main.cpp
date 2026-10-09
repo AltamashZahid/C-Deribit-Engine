@@ -88,12 +88,13 @@ void run_synthetic(App& app, double rate, const std::atomic<bool>& stop) {
     const auto start = now_ns();
     while (!stop.load(std::memory_order_relaxed)) {
         if (rate > 0) {
-            // Pace by spinning: sleep_for can oversleep by up to ~15 ms on Windows, which
-            // would turn a steady rate into bursts.
+            // Pace by spinning: sleep_for can oversleep by up to ~15 ms on Windows, which would
+            // turn a steady rate into bursts (and bursts get conflated). Only sleep when the
+            // next update is far enough away that an oversleep can't make it late.
             const auto due = start + static_cast<std::int64_t>(static_cast<double>(sent) * 1e9 / rate);
             const auto now = now_ns();
             if (now < due) {
-                if (due - now > 2'000'000) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                if (due - now > 20'000'000) std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 else std::this_thread::yield();
                 continue;
             }
